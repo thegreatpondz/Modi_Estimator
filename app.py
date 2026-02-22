@@ -1,0 +1,365 @@
+import streamlit as st
+from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
+import json
+import os
+
+# ตั้งค่าหน้าเว็บ
+st.set_page_config(
+    page_title="เครื่องคำนวณพื้นที่บ้านและประเมินราคา",
+    page_icon="🏠",
+    layout="wide"
+)
+
+# Sidebar สำหรับเลือกโหมด
+with st.sidebar:
+    st.header("⚙️ เลือกโหมดการคำนวณ")
+    calculation_mode = st.radio(
+        "เลือกโหมด",
+        ["โหมดปกติ", "โหมดคำนวณย้อนกลับ"],
+        help="เลือกโหมดการคำนวณที่ต้องการ"
+    )
+    st.markdown("---")
+    st.caption("เลือกโหมดการคำนวณจากเมนูด้านบน")
+
+# หัวข้อหลัก
+st.title("🏠 เครื่องคำนวณพื้นที่บ้านและประเมินราคา")
+st.markdown("---")
+
+# ตัวแปรสำหรับเก็บข้อมูลโครงการ
+project_data = {}
+
+# ฟังก์ชันสำหรับบันทึกลง Google Sheets
+def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
+    """
+    ฟังก์ชันสำหรับบันทึกข้อมูลลง Google Sheets
+    ใช้ไฟล์ google_key.json สำหรับ authentication
+    """
+    try:
+        # อ่านไฟล์ credentials
+        creds_file = 'google_key.json'
+        if not os.path.exists(creds_file):
+            raise FileNotFoundError(f"ไม่พบไฟล์ {creds_file}")
+        
+        # สร้าง credentials จากไฟล์
+        scope = [
+            'https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        creds = Credentials.from_service_account_file(creds_file, scopes=scope)
+        client = gspread.authorize(creds)
+        
+        # เปิด Google Sheet
+        sheet = client.open(sheet_name).sheet1
+        
+        # ตรวจสอบว่ามี header row หรือยัง
+        if sheet.row_count == 0:
+            # สร้าง header row ตามลำดับที่ต้องการ
+            headers = [
+                'Timestamp',
+                'Project Name',
+                'Mode',
+                'Width',
+                'Length',
+                'Floors',
+                'Price per Sqm',
+                'Total Area',
+                'Total Price'
+            ]
+            sheet.append_row(headers)
+        
+        # เตรียมข้อมูลสำหรับบันทึกตามลำดับที่ต้องการ
+        if data['mode'] == 'โหมดปกติ':
+            row_data = [
+                data['timestamp'],           # Timestamp
+                data.get('project_name', ''), # Project Name
+                data['mode'],                # Mode
+                data['width'],              # Width
+                data['length'],             # Length
+                data['floors'],             # Floors
+                data['price_per_sqm'],      # Price per Sqm
+                data['total_area'],         # Total Area
+                data['total_price']         # Total Price
+            ]
+        else:  # โหมดคำนวณย้อนกลับ
+            # ใช้ขนาดแนะนำตัวแรก
+            recommended_size = data.get('recommended_sizes', [{}])[0] if data.get('recommended_sizes') else {}
+            # คำนวณราคารวมจากพื้นที่รวมและราคาต่อตร.ม.
+            calculated_total_price = data['total_area'] * data['price_per_sqm']
+            row_data = [
+                data['timestamp'],                    # Timestamp
+                data.get('project_name', ''),         # Project Name
+                data['mode'],                         # Mode
+                recommended_size.get('width', ''),    # Width
+                recommended_size.get('length', ''),   # Length
+                data['floors'],                       # Floors
+                data['price_per_sqm'],                # Price per Sqm
+                data['total_area'],                    # Total Area
+                calculated_total_price                # Total Price (คำนวณจาก total_area × price_per_sqm)
+            ]
+        
+        # บันทึกข้อมูล
+        sheet.append_row(row_data)
+        return True, "บันทึกข้อมูลสำเร็จ!"
+        
+    except FileNotFoundError as e:
+        return False, f"❌ เกิดข้อผิดพลาด: {str(e)}"
+    except gspread.exceptions.SpreadsheetNotFound:
+        return False, f"❌ ไม่พบ Google Sheet ชื่อ '{sheet_name}' กรุณาตรวจสอบชื่อและสิทธิ์การเข้าถึง"
+    except gspread.exceptions.APIError as e:
+        return False, f"❌ เกิดข้อผิดพลาดจาก Google API: {str(e)}"
+    except Exception as e:
+        return False, f"❌ เกิดข้อผิดพลาด: {str(e)}"
+
+# โหมดปกติ: กรอก กว้าง, ยาว -> ได้พื้นที่และราคารวม
+if calculation_mode == "โหมดปกติ":
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.header("📝 กรอกข้อมูล")
+        
+        width = st.number_input(
+            "กว้าง (เมตร)",
+            min_value=0.0,
+            value=10.0,
+            step=0.1,
+            help="ความกว้างของบ้านเป็นเมตร",
+            key="width_normal"
+        )
+        
+        length = st.number_input(
+            "ยาว (เมตร)",
+            min_value=0.0,
+            value=10.0,
+            step=0.1,
+            help="ความยาวของบ้านเป็นเมตร",
+            key="length_normal"
+        )
+        
+        floors = st.number_input(
+            "จำนวนชั้น",
+            min_value=1,
+            value=1,
+            step=1,
+            help="จำนวนชั้นของบ้าน",
+            key="floors_normal"
+        )
+        
+        price_per_sqm = st.number_input(
+            "ราคาต่อ ตร.ม. (บาท)",
+            min_value=0.0,
+            value=50000.0,
+            step=1000.0,
+            help="ราคาต่อตารางเมตร",
+            key="price_normal"
+        )
+    
+    with col2:
+        st.header("📊 ผลการคำนวณ")
+        
+        # คำนวณพื้นที่
+        area_per_floor = width * length
+        total_area = area_per_floor * floors
+        total_price = total_area * price_per_sqm
+        
+        # แสดงผลลัพธ์
+        st.metric("พื้นที่ต่อชั้น", f"{area_per_floor:,.2f} ตร.ม.")
+        st.metric("พื้นที่รวมทั้งหมด", f"{total_area:,.2f} ตร.ม.")
+        st.metric("ราคาประเมินรวม", f"{total_price:,.2f} บาท")
+        
+        # แสดงผลแบบละเอียด
+        st.markdown("---")
+        st.subheader("รายละเอียดการคำนวณ")
+        st.write(f"**พื้นที่ต่อชั้น:** {width:.2f} × {length:.2f} = {area_per_floor:,.2f} ตร.ม.")
+        st.write(f"**จำนวนชั้น:** {floors} ชั้น")
+        st.write(f"**พื้นที่รวม:** {area_per_floor:,.2f} × {floors} = {total_area:,.2f} ตร.ม.")
+        st.write(f"**ราคาประเมิน:** {total_area:,.2f} × {price_per_sqm:,.2f} = {total_price:,.2f} บาท")
+        
+        # เก็บข้อมูลโครงการ
+        project_data = {
+            'mode': 'โหมดปกติ',
+            'width': width,
+            'length': length,
+            'floors': floors,
+            'price_per_sqm': price_per_sqm,
+            'area_per_floor': area_per_floor,
+            'total_area': total_area,
+            'total_price': total_price,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+# โหมดคำนวณย้อนกลับ: กรอกงบประมาณและราคาต่อ ตร.ม. -> ได้พื้นที่และแนะนำขนาด
+elif calculation_mode == "โหมดคำนวณย้อนกลับ":
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.header("💰 กรอกข้อมูลงบประมาณ")
+        
+        budget = st.number_input(
+            "งบที่มี (บาท)",
+            min_value=0.0,
+            value=5000000.0,
+            step=100000.0,
+            help="งบประมาณที่มีสำหรับสร้างบ้าน",
+            key="budget_reverse"
+        )
+        
+        price_per_sqm = st.number_input(
+            "ราคาต่อ ตร.ม. (บาท)",
+            min_value=0.0,
+            value=50000.0,
+            step=1000.0,
+            help="ราคาต่อตารางเมตร",
+            key="price_reverse"
+        )
+        
+        floors = st.number_input(
+            "จำนวนชั้น",
+            min_value=1,
+            value=1,
+            step=1,
+            help="จำนวนชั้นของบ้าน",
+            key="floors_reverse"
+        )
+    
+    with col2:
+        st.header("📊 ผลการคำนวณ")
+        
+        # คำนวณจากงบประมาณ
+        if price_per_sqm > 0 and floors > 0:
+            # คำนวณพื้นที่รวมที่ได้จากงบประมาณ
+            total_area_from_budget = budget / price_per_sqm
+            
+            # คำนวณพื้นที่ต่อชั้น
+            area_per_floor = total_area_from_budget / floors
+            
+            # แสดงผลลัพธ์
+            st.metric("พื้นที่รวมที่ได้", f"{total_area_from_budget:,.2f} ตร.ม.")
+            st.metric("พื้นที่ต่อชั้น", f"{area_per_floor:,.2f} ตร.ม.")
+            
+            # แสดงผลแบบละเอียด
+            st.markdown("---")
+            st.subheader("รายละเอียดการคำนวณ")
+            st.write(f"**งบประมาณ:** {budget:,.2f} บาท")
+            st.write(f"**ราคาต่อ ตร.ม.:** {price_per_sqm:,.2f} บาท")
+            st.write(f"**พื้นที่รวมที่ได้:** {budget:,.2f} ÷ {price_per_sqm:,.2f} = {total_area_from_budget:,.2f} ตร.ม.")
+            st.write(f"**จำนวนชั้น:** {floors} ชั้น")
+            st.write(f"**พื้นที่ต่อชั้น:** {total_area_from_budget:,.2f} ÷ {floors} = {area_per_floor:,.2f} ตร.ม.")
+            
+            # แสดงคำแนะนำขนาดกว้างยาวที่เหมาะสม
+            st.markdown("---")
+            st.subheader("📐 ขนาดบ้านที่แนะนำ")
+            
+            # คำนวณหลายตัวเลือกของขนาดกว้างยาว
+            recommended_sizes = []
+            
+            # ตัวเลือกที่ 1: สัดส่วน 1:1 (สี่เหลี่ยมจัตุรัส)
+            if area_per_floor > 0:
+                square_side = (area_per_floor ** 0.5)
+                recommended_sizes.append({
+                    'width': square_side,
+                    'length': square_side,
+                    'ratio': '1:1 (สี่เหลี่ยมจัตุรัส)'
+                })
+                
+                # ตัวเลือกที่ 2: สัดส่วน 3:4 (กว้างน้อยกว่ายาว)
+                width_34 = (area_per_floor * 3 / 4) ** 0.5
+                length_34 = area_per_floor / width_34
+                recommended_sizes.append({
+                    'width': width_34,
+                    'length': length_34,
+                    'ratio': '3:4 (แนวตั้ง)'
+                })
+                
+                # ตัวเลือกที่ 3: สัดส่วน 4:3 (กว้างมากกว่ายาว)
+                width_43 = (area_per_floor * 4 / 3) ** 0.5
+                length_43 = area_per_floor / width_43
+                recommended_sizes.append({
+                    'width': width_43,
+                    'length': length_43,
+                    'ratio': '4:3 (แนวนอน)'
+                })
+                
+                # ตัวเลือกที่ 4: สัดส่วน 2:3 (บ้านแคบยาว)
+                width_23 = (area_per_floor * 2 / 3) ** 0.5
+                length_23 = area_per_floor / width_23
+                recommended_sizes.append({
+                    'width': width_23,
+                    'length': length_23,
+                    'ratio': '2:3 (บ้านแคบยาว)'
+                })
+            
+            # แสดงตัวเลือกทั้งหมด
+            for i, size in enumerate(recommended_sizes, 1):
+                st.write(f"**ตัวเลือก {i}** ({size['ratio']}):")
+                st.write(f"   กว้าง {size['width']:.2f} เมตร × ยาว {size['length']:.2f} เมตร")
+                st.write(f"   พื้นที่: {size['width'] * size['length']:.2f} ตร.ม.")
+                st.write("")
+            
+            # แสดงคำแนะนำสรุป
+            st.info(f"💡 **สรุป:** ด้วยงบประมาณ {budget:,.0f} บาท คุณสามารถสร้างบ้านได้พื้นที่รวม **{total_area_from_budget:,.2f} ตร.ม.** ({floors} ชั้น)")
+            
+            # เก็บข้อมูลโครงการ
+            project_data = {
+                'mode': 'โหมดคำนวณย้อนกลับ',
+                'budget': budget,
+                'price_per_sqm': price_per_sqm,
+                'floors': floors,
+                'total_area': total_area_from_budget,
+                'area_per_floor': area_per_floor,
+                'recommended_sizes': recommended_sizes,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        else:
+            st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
+
+# Footer และปุ่มบันทึกข้อมูลโครงการ
+st.markdown("---")
+
+# ส่วนบันทึกข้อมูลโครงการ
+st.header("💾 บันทึกข้อมูลโครงการ")
+
+# ฟอร์มสำหรับบันทึกข้อมูลโครงการ
+with st.form("save_project_form"):
+    project_name = st.text_input(
+        "ชื่อโครงการ",
+        value="",
+        placeholder="เช่น บ้านเดี่ยว 2 ชั้น",
+        help="ระบุชื่อโครงการเพื่อบันทึก"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        save_button = st.form_submit_button("💾 บันทึกข้อมูลโครงการ", use_container_width=True)
+    with col2:
+        clear_button = st.form_submit_button("🗑️ ล้างข้อมูล", use_container_width=True)
+    
+    if save_button:
+        if project_name.strip() == "":
+            st.error("⚠️ กรุณากรอกชื่อโครงการ")
+        elif not project_data:
+            st.error("⚠️ ไม่มีข้อมูลโครงการให้บันทึก")
+        else:
+            # เพิ่มชื่อโครงการเข้าไปในข้อมูล
+            project_data['project_name'] = project_name
+            
+            # บันทึกลง Google Sheets
+            with st.spinner("กำลังบันทึกข้อมูลลง Google Sheets..."):
+                success, message = save_to_google_sheets(project_data)
+                
+                if success:
+                    st.success(f"✅ {message}")
+                    st.info(f"📊 ข้อมูลโครงการ '{project_name}' ถูกบันทึกลง Google Sheet 'Modi_House_Database' แล้ว")
+                else:
+                    st.error(message)
+                    st.warning("💡 ตรวจสอบว่า:")
+                    st.warning("   1. ไฟล์ google_key.json อยู่ในโฟลเดอร์เดียวกับ app.py")
+                    st.warning("   2. Google Sheet ชื่อ 'Modi_House_Database' มีอยู่จริง")
+                    st.warning("   3. Service account email มีสิทธิ์แก้ไข Google Sheet")
+    
+    if clear_button:
+        st.rerun()
+
+st.markdown("---")
+st.caption("© เครื่องคำนวณพื้นที่บ้านและประเมินราคา")
