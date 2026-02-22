@@ -34,20 +34,31 @@ project_data = {}
 def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
     """
     ฟังก์ชันสำหรับบันทึกข้อมูลลง Google Sheets
-    ใช้ไฟล์ google_key.json สำหรับ authentication
+    - เวอร์ชันออนไลน์: ใช้ st.secrets['gcp_service_account']
+    - รัน local: ใช้ไฟล์ google_key.json
     """
     try:
-        # อ่านไฟล์ credentials
-        creds_file = 'google_key.json'
-        if not os.path.exists(creds_file):
-            raise FileNotFoundError(f"ไม่พบไฟล์ {creds_file}")
-        
-        # สร้าง credentials จากไฟล์
         scope = [
             'https://spreadsheets.google.com/feeds',
             'https://www.googleapis.com/auth/drive'
         ]
-        creds = Credentials.from_service_account_file(creds_file, scopes=scope)
+        
+        # ใช้ st.secrets เมื่อ deploy ออนไลน์ (Streamlit Cloud, etc.)
+        if 'gcp_service_account' in st.secrets:
+            service_account_info = st.secrets.get('gcp_service_account', {})
+            if isinstance(service_account_info, dict):
+                creds = Credentials.from_service_account_info(service_account_info, scopes=scope)
+            else:
+                creds = Credentials.from_service_account_info(json.loads(service_account_info), scopes=scope)
+        # รัน local: ใช้ไฟล์ google_key.json
+        elif os.path.exists('google_key.json'):
+            creds = Credentials.from_service_account_file('google_key.json', scopes=scope)
+        else:
+            raise FileNotFoundError(
+                "ไม่พบ credentials กรุณาตั้งค่า st.secrets['gcp_service_account'] (ออนไลน์) "
+                "หรือวางไฟล์ google_key.json ในโฟลเดอร์โปรเจกต์ (รัน local)"
+            )
+        
         client = gspread.authorize(creds)
         
         # เปิด Google Sheet
@@ -104,7 +115,7 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
         return True, "บันทึกข้อมูลสำเร็จ!"
         
     except FileNotFoundError as e:
-        return False, f"❌ เกิดข้อผิดพลาด: {str(e)}"
+        return False, f"❌ {str(e)}"
     except gspread.exceptions.SpreadsheetNotFound:
         return False, f"❌ ไม่พบ Google Sheet ชื่อ '{sheet_name}' กรุณาตรวจสอบชื่อและสิทธิ์การเข้าถึง"
     except gspread.exceptions.APIError as e:
@@ -354,9 +365,10 @@ with st.form("save_project_form"):
                 else:
                     st.error(message)
                     st.warning("💡 ตรวจสอบว่า:")
-                    st.warning("   1. ไฟล์ google_key.json อยู่ในโฟลเดอร์เดียวกับ app.py")
-                    st.warning("   2. Google Sheet ชื่อ 'Modi_House_Database' มีอยู่จริง")
-                    st.warning("   3. Service account email มีสิทธิ์แก้ไข Google Sheet")
+                    st.warning("   1. ออนไลน์: ตั้งค่า gcp_service_account ใน Streamlit Secrets")
+                    st.warning("   2. Local: ไฟล์ google_key.json อยู่ในโฟลเดอร์เดียวกับ app.py")
+                    st.warning("   3. Google Sheet ชื่อ 'Modi_House_Database' มีอยู่จริง")
+                    st.warning("   4. Service account email มีสิทธิ์แก้ไข Google Sheet")
     
     if clear_button:
         st.rerun()
