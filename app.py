@@ -45,11 +45,9 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
         
         # ใช้ st.secrets เมื่อ deploy ออนไลน์ (Streamlit Cloud, etc.)
         if 'gcp_service_account' in st.secrets:
-            service_account_info = st.secrets.get('gcp_service_account', {})
-            if isinstance(service_account_info, dict):
-                creds = Credentials.from_service_account_info(service_account_info, scopes=scope)
-            else:
-                creds = Credentials.from_service_account_info(json.loads(service_account_info), scopes=scope)
+            # st.secrets คืนค่าเป็น Secrets/AttrDict -> แปลงเป็น dict ปกติก่อนใช้
+            service_account_info = dict(st.secrets['gcp_service_account'])
+            creds = Credentials.from_service_account_info(service_account_info, scopes=scope)
         # รัน local: ใช้ไฟล์ google_key.json
         elif os.path.exists('google_key.json'):
             creds = Credentials.from_service_account_file('google_key.json', scopes=scope)
