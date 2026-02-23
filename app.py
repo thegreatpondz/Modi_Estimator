@@ -31,23 +31,80 @@ st.markdown("---")
 project_data = {}
 
 # ฟังก์ชันสำหรับบันทึกลง Google Sheets
-def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
+def save_to_google_sheets(data, sheet_name: str = "Modi_House_Database"):
+    """
+    บันทึกข้อมูลลง Google Sheet ชื่อ 'Modi_House_Database'
+    โดยจัดเรียงข้อมูลตามหัวคอลัมน์ในชีตดังนี้ (ซ้ายไปขวา):
+    Mode, Width, Length, Floors, Price per sqm, Area per floor,
+    Total area, Total price, Timestamp, Project Name
+    """
     try:
-        # เชื่อมต่อ Google Sheets โดยใช้กุญแจออนไลน์
+        # 1) เชื่อมต่อ Google Sheets ด้วย service account จาก st.secrets
         gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
         sh = gc.open(sheet_name)
         sheet = sh.get_worksheet(0)
-        
-        # กรองข้อมูล: เอาเฉพาะค่าที่มีข้อมูลจริง ตัดช่องว่าง "" ออกให้หมด
-        # วิธีนี้จะทำให้ข้อมูลเริ่มที่คอลัมน์ A (Timestamp) เสมอ
-        data_to_save = [v for v in data if v != "" and v is not None]
-        
-        # บันทึกข้อมูลลงในแถวใหม่ (เริ่มที่คอลัมน์ A)
-        sheet.append_row(data_to_save, value_input_option='USER_ENTERED')
+
+        # 2) ดึงค่าที่ต้องใช้จาก data (พร้อม default เผื่อ key หาย)
+        mode = data.get("mode", "")
+
+        # ค่าพื้นฐานที่ใช้ทั้งสองโหมด
+        floors = data.get("floors", "")
+        price_per_sqm = data.get("price_per_sqm", "")
+        area_per_floor = data.get("area_per_floor", "")
+        total_area = data.get("total_area", "")
+        total_price = data.get("total_price", None)
+        timestamp = data.get("timestamp", "")
+        project_name = data.get("project_name", "")
+
+        # คำนวณ/ดึง Width, Length ตามโหมด
+        width = ""
+        length = ""
+
+        if mode == "โหมดปกติ":
+            width = data.get("width", "")
+            length = data.get("length", "")
+        elif mode == "โหมดคำนวณย้อนกลับ":
+            # ใช้ขนาดแนะนำตัวแรก ถ้ามี
+            recommended_sizes = data.get("recommended_sizes") or []
+            first_size = recommended_sizes[0] if recommended_sizes else {}
+            width = first_size.get("width", "")
+            length = first_size.get("length", "")
+
+            # ถ้า total_price ยังไม่ได้เก็บไว้ ให้คำนวณจาก total_area × price_per_sqm
+            if total_price is None and isinstance(total_area, (int, float)) and isinstance(
+                price_per_sqm, (int, float)
+            ):
+                total_price = total_area * price_per_sqm
+
+        # ป้องกัน total_price เป็น None (ให้เป็นค่าว่างแทน)
+        if total_price is None:
+            total_price = ""
+
+        # 3) ประกอบลิสต์ข้อมูลตามลำดับที่ต้องการ
+        #    ห้ามมีค่าว่าง "" หรือช่องว่างนำหน้าลิสต์ (ตัวแรกต้องเป็น Mode เสมอ)
+        data_to_save = [
+            mode,          # Mode
+            width,         # Width
+            length,        # Length
+            floors,        # Floors
+            price_per_sqm, # Price per sqm
+            area_per_floor,# Area per floor
+            total_area,    # Total area
+            total_price,   # Total price
+            timestamp,     # Timestamp
+            project_name,  # Project Name
+        ]
+
+        # ยืนยันว่าตัวแรกไม่ใช่ค่าว่างหรือช่องว่าง
+        if not str(data_to_save[0]).strip():
+            raise ValueError("Mode ว่าง ทำให้ไม่สามารถบันทึกข้อมูลได้อย่างถูกต้อง")
+
+        # 4) บันทึกข้อมูลลง Google Sheets (เริ่มที่คอลัมน์ A เสมอ)
+        sheet.append_row(data_to_save, value_input_option="USER_ENTERED")
         return True, "บันทึกข้อมูลสำเร็จ!"
-        
+
     except Exception as e:
-        # ถ้ามีอะไรพัง ให้แสดงข้อความแจ้งเตือน
+        # ถ้ามีอะไรพัง ให้ส่งข้อความ error กลับไปแสดงในหน้าเว็บ
         return False, f"❌ เกิดข้อผิดพลาด: {str(e)}"
 
 # โหมดปกติ: กรอก กว้าง, ยาว -> ได้พื้นที่และราคารวม
