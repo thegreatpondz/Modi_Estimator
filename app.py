@@ -81,15 +81,15 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
         # เตรียมข้อมูลสำหรับบันทึกตามลำดับที่ต้องการ
         if data['mode'] == 'โหมดปกติ':
             row_data = [
-                data['timestamp'],           # Timestamp
+                data['timestamp'],            # Timestamp
                 data.get('project_name', ''), # Project Name
-                data['mode'],                # Mode
-                data['width'],              # Width
-                data['length'],             # Length
-                data['floors'],             # Floors
-                data['price_per_sqm'],      # Price per Sqm
-                data['total_area'],         # Total Area
-                data['total_price']         # Total Price
+                data['mode'],                 # Mode
+                data['width'],               # Width
+                data['length'],              # Length
+                data['floors'],              # Floors
+                data['price_per_sqm'],       # Price per Sqm
+                data['total_area'],          # Total Area
+                data['total_price']          # Total Price
             ]
         else:  # โหมดคำนวณย้อนกลับ
             # ใช้ขนาดแนะนำตัวแรก
@@ -97,17 +97,21 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
             # คำนวณราคารวมจากพื้นที่รวมและราคาต่อตร.ม.
             calculated_total_price = data['total_area'] * data['price_per_sqm']
             row_data = [
-                data['timestamp'],                    # Timestamp
-                data.get('project_name', ''),         # Project Name
-                data['mode'],                         # Mode
-                recommended_size.get('width', ''),    # Width
-                recommended_size.get('length', ''),   # Length
-                data['floors'],                       # Floors
-                data['price_per_sqm'],                # Price per Sqm
+                data['timestamp'],                     # Timestamp
+                data.get('project_name', ''),          # Project Name
+                data['mode'],                          # Mode
+                recommended_size.get('width', ''),     # Width
+                recommended_size.get('length', ''),    # Length
+                data['floors'],                        # Floors
+                data['price_per_sqm'],                 # Price per Sqm
                 data['total_area'],                    # Total Area
-                calculated_total_price                # Total Price (คำนวณจาก total_area × price_per_sqm)
+                calculated_total_price                 # Total Price (คำนวณจาก total_area × price_per_sqm)
             ]
-        
+
+        # จำกัดจำนวนคอลัมน์ไม่ให้เกิน 9 (A–I)
+        max_cols = 9
+        row_data = list(row_data)[:max_cols]
+
         # บันทึกข้อมูล
         sheet.append_row(row_data)
         return True, "บันทึกข้อมูลสำเร็จ!"
