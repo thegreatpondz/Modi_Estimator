@@ -120,8 +120,8 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
         # แปลงค่า None อื่นๆ ให้เป็นค่าว่าง เพื่อไม่ให้ขึ้น None ในชีต
         data_to_save = [("" if v is None else v) for v in data_to_save]
 
-        # บันทึกข้อมูลให้เริ่มที่คอลัมน์ A เสมอ
-        sheet.append_row(data_to_save, table_consumer_strategy='RAW')
+        # บันทึกข้อมูลให้เริ่มที่คอลัมน์ A เสมอ (แบบมาตรฐาน)
+        sheet.append_row(data_to_save, value_input_option='USER_ENTERED')
         return True, "บันทึกข้อมูลสำเร็จ!"
         
     except FileNotFoundError as e:
