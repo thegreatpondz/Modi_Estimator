@@ -81,15 +81,15 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
         # เตรียมข้อมูลสำหรับบันทึกตามลำดับที่ต้องการ
         if data['mode'] == 'โหมดปกติ':
             row_data = [
-                data['timestamp'],            # Timestamp
-                data.get('project_name', ''), # Project Name
-                data['mode'],                 # Mode
-                data['width'],               # Width
-                data['length'],              # Length
-                data['floors'],              # Floors
-                data['price_per_sqm'],       # Price per Sqm
-                data['total_area'],          # Total Area
-                data['total_price']          # Total Price
+                data['timestamp'],             # Timestamp (ต้องอยู่ช่องแรกเสมอ)
+                data.get('project_name', ''),  # Project Name
+                data['mode'],                  # Mode
+                data['width'],                 # Width
+                data['length'],                # Length
+                data['floors'],                # Floors
+                data['price_per_sqm'],         # Price per Sqm
+                data['total_area'],            # Total Area
+                data['total_price']            # Total Price
             ]
         else:  # โหมดคำนวณย้อนกลับ
             # ใช้ขนาดแนะนำตัวแรก
@@ -97,7 +97,7 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
             # คำนวณราคารวมจากพื้นที่รวมและราคาต่อตร.ม.
             calculated_total_price = data['total_area'] * data['price_per_sqm']
             row_data = [
-                data['timestamp'],                     # Timestamp
+                data['timestamp'],                     # Timestamp (ต้องอยู่ช่องแรกเสมอ)
                 data.get('project_name', ''),          # Project Name
                 data['mode'],                          # Mode
                 recommended_size.get('width', ''),     # Width
@@ -105,15 +105,23 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
                 data['floors'],                        # Floors
                 data['price_per_sqm'],                 # Price per Sqm
                 data['total_area'],                    # Total Area
-                calculated_total_price                 # Total Price (คำนวณจาก total_area × price_per_sqm)
+                calculated_total_price                 # Total Price
             ]
 
-        # จำกัดจำนวนคอลัมน์ไม่ให้เกิน 9 (A–I)
+        # จำกัดจำนวนคอลัมน์ไม่ให้เกิน 9 (A–I) และเตรียม data_to_save ให้สะอาด
         max_cols = 9
-        row_data = list(row_data)[:max_cols]
+        data_to_save = list(row_data)[:max_cols]
 
-        # บันทึกข้อมูล
-        sheet.append_row(row_data)
+        # ห้ามมีช่องว่างหรือ None นำหน้า timestamp
+        if not data_to_save or data_to_save[0] is None or str(data_to_save[0]).strip() == "":
+            data_to_save.insert(0, data.get('timestamp'))
+            data_to_save = data_to_save[:max_cols]
+
+        # แปลงค่า None อื่นๆ ให้เป็นค่าว่าง เพื่อไม่ให้ขึ้น None ในชีต
+        data_to_save = [("" if v is None else v) for v in data_to_save]
+
+        # บันทึกข้อมูลให้เริ่มที่คอลัมน์ A เสมอ
+        sheet.append_row(data_to_save, table_consumer_strategy='RAW')
         return True, "บันทึกข้อมูลสำเร็จ!"
         
     except FileNotFoundError as e:
