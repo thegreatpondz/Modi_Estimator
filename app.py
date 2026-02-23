@@ -110,17 +110,12 @@ def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
 
         # จำกัดจำนวนคอลัมน์ไม่ให้เกิน 9 (A–I) และเตรียม data_to_save ให้สะอาด
         max_cols = 9
-        data_to_save = list(row_data)[:max_cols]
-
-        # ห้ามมีช่องว่างหรือ None นำหน้า timestamp
-        if not data_to_save or data_to_save[0] is None or str(data_to_save[0]).strip() == "":
-            data_to_save.insert(0, data.get('timestamp'))
-            data_to_save = data_to_save[:max_cols]
-
-        # แปลงค่า None อื่นๆ ให้เป็นค่าว่าง เพื่อไม่ให้ขึ้น None ในชีต
-        data_to_save = [("" if v is None else v) for v in data_to_save]
-
-        # บันทึกข้อมูลให้เริ่มที่คอลัมน์ A เสมอ (แบบมาตรฐาน)
+        # index 0 = timestamp เสมอ ห้ามมีค่าอื่นหรือช่องว่างนำหน้า
+        timestamp_value = row_data[0]
+        # ทำความสะอาดค่าอื่นๆ (index 1..)
+        cleaned_tail = [("" if v is None else v) for v in row_data[1:max_cols]]
+        # เลือกเฉพาะข้อมูลที่มีตัวหนังสือจริงๆ ไม่เอาช่องว่างนำหน้า
+    data_to_save = [v for v in row_data if v != "" and v is not None]
         sheet.append_row(data_to_save, value_input_option='USER_ENTERED')
         return True, "บันทึกข้อมูลสำเร็จ!"
         
