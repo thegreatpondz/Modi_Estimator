@@ -32,100 +32,22 @@ project_data = {}
 
 # ฟังก์ชันสำหรับบันทึกลง Google Sheets
 def save_to_google_sheets(data, sheet_name='Modi_House_Database'):
-    """
-    ฟังก์ชันสำหรับบันทึกข้อมูลลง Google Sheets
-    - เวอร์ชันออนไลน์: ใช้ st.secrets['gcp_service_account']
-    - รัน local: ใช้ไฟล์ google_key.json
-    """
     try:
-        scope = [
-            'https://spreadsheets.google.com/feeds',
-            'https://www.googleapis.com/auth/drive'
-        ]
+        # เชื่อมต่อ Google Sheets โดยใช้กุญแจออนไลน์
+        gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
+        sh = gc.open(sheet_name)
+        sheet = sh.get_worksheet(0)
         
-        # ใช้ st.secrets เมื่อ deploy ออนไลน์ (Streamlit Cloud, etc.)
-        if 'gcp_service_account' in st.secrets:
-            # st.secrets คืนค่าเป็น Secrets/AttrDict -> แปลงเป็น dict ปกติก่อนใช้
-            service_account_info = dict(st.secrets['gcp_service_account'])
-            creds = Credentials.from_service_account_info(service_account_info, scopes=scope)
-        # รัน local: ใช้ไฟล์ google_key.json
-        elif os.path.exists('google_key.json'):
-            creds = Credentials.from_service_account_file('google_key.json', scopes=scope)
-        else:
-            raise FileNotFoundError(
-                "ไม่พบ credentials กรุณาตั้งค่า st.secrets['gcp_service_account'] (ออนไลน์) "
-                "หรือวางไฟล์ google_key.json ในโฟลเดอร์โปรเจกต์ (รัน local)"
-            )
+        # กรองข้อมูล: เอาเฉพาะค่าที่มีข้อมูลจริง ตัดช่องว่าง "" ออกให้หมด
+        # วิธีนี้จะทำให้ข้อมูลเริ่มที่คอลัมน์ A (Timestamp) เสมอ
+        data_to_save = [v for v in data if v != "" and v is not None]
         
-        client = gspread.authorize(creds)
-        
-        # เปิด Google Sheet
-        sheet = client.open(sheet_name).sheet1
-        
-        # ตรวจสอบว่ามี header row หรือยัง
-        if sheet.row_count == 0:
-            # สร้าง header row ตามลำดับที่ต้องการ
-            headers = [
-                'Timestamp',
-                'Project Name',
-                'Mode',
-                'Width',
-                'Length',
-                'Floors',
-                'Price per Sqm',
-                'Total Area',
-                'Total Price'
-            ]
-            sheet.append_row(headers)
-        
-        # เตรียมข้อมูลสำหรับบันทึกตามลำดับที่ต้องการ
-        if data['mode'] == 'โหมดปกติ':
-            row_data = [
-                data['timestamp'],             # Timestamp (ต้องอยู่ช่องแรกเสมอ)
-                data.get('project_name', ''),  # Project Name
-                data['mode'],                  # Mode
-                data['width'],                 # Width
-                data['length'],                # Length
-                data['floors'],                # Floors
-                data['price_per_sqm'],         # Price per Sqm
-                data['total_area'],            # Total Area
-                data['total_price']            # Total Price
-            ]
-        else:  # โหมดคำนวณย้อนกลับ
-            # ใช้ขนาดแนะนำตัวแรก
-            recommended_size = data.get('recommended_sizes', [{}])[0] if data.get('recommended_sizes') else {}
-            # คำนวณราคารวมจากพื้นที่รวมและราคาต่อตร.ม.
-            calculated_total_price = data['total_area'] * data['price_per_sqm']
-            row_data = [
-                data['timestamp'],                     # Timestamp (ต้องอยู่ช่องแรกเสมอ)
-                data.get('project_name', ''),          # Project Name
-                data['mode'],                          # Mode
-                recommended_size.get('width', ''),     # Width
-                recommended_size.get('length', ''),    # Length
-                data['floors'],                        # Floors
-                data['price_per_sqm'],                 # Price per Sqm
-                data['total_area'],                    # Total Area
-                calculated_total_price                 # Total Price
-            ]
-
-        # จำกัดจำนวนคอลัมน์ไม่ให้เกิน 9 (A–I) และเตรียม data_to_save ให้สะอาด
-        max_cols = 9
-        # index 0 = timestamp เสมอ ห้ามมีค่าอื่นหรือช่องว่างนำหน้า
-        timestamp_value = row_data[0]
-        # ทำความสะอาดค่าอื่นๆ (index 1..)
-        cleaned_tail = [("" if v is None else v) for v in row_data[1:max_cols]]
-        # เลือกเฉพาะข้อมูลที่มีตัวหนังสือจริงๆ ไม่เอาช่องว่างนำหน้า
-    data_to_save = [v for v in row_data if v != "" and v is not None]
+        # บันทึกข้อมูลลงในแถวใหม่ (เริ่มที่คอลัมน์ A)
         sheet.append_row(data_to_save, value_input_option='USER_ENTERED')
         return True, "บันทึกข้อมูลสำเร็จ!"
         
-    except FileNotFoundError as e:
-        return False, f"❌ {str(e)}"
-    except gspread.exceptions.SpreadsheetNotFound:
-        return False, f"❌ ไม่พบ Google Sheet ชื่อ '{sheet_name}' กรุณาตรวจสอบชื่อและสิทธิ์การเข้าถึง"
-    except gspread.exceptions.APIError as e:
-        return False, f"❌ เกิดข้อผิดพลาดจาก Google API: {str(e)}"
     except Exception as e:
+        # ถ้ามีอะไรพัง ให้แสดงข้อความแจ้งเตือน
         return False, f"❌ เกิดข้อผิดพลาด: {str(e)}"
 
 # โหมดปกติ: กรอก กว้าง, ยาว -> ได้พื้นที่และราคารวม
